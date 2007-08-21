@@ -1,0 +1,99 @@
+#!/usr/bin/ruby
+
+require 'net/smtp'
+require 'getoptlong'
+require 'rexml/document'
+
+$config_file	= File.join ENV['HOME'], '.starsmtp'
+$mail_from 	= nil
+$recipients 	= []
+$config		= nil
+
+def fatal_error(message)
+  $stderr.puts "#{File.basename $0}: #{message}"
+  exit 1
+end
+
+def parse_options
+  opt = GetoptLong.new(['-f', GetoptLong::REQUIRED_ARGUMENT])
+  begin
+    opt.each do |name, arg|
+      case name
+      when '-f'
+	$mail_from = arg
+      end
+    end
+  rescue => e
+    #	fatal_error "bad option: #{e.message}"
+  end
+
+  $recipients = ARGV
+end
+
+def get_config(item, default = nil)
+  val = nil
+  if $config.elements["starsmtp/#{item}"] != nil
+    val = $config.elements["starsmtp/#{item}"].text
+  else
+    if default == nil
+      fatal_error "missing required configuration item:" +
+	" #{item}"
+    else
+      val = default
+    end
+  end
+  return val
+end
+
+def scan_message(lines)
+  find_recipients = $recipients.nil?
+  lines.each do |line|
+    if $mail_from.nil? && /^From: [^<]*<([^>]+)>/ =~ line
+      $mail_from = $~[0]
+    end
+    if find_recipients && /^(To|Cc|Bcc): [^<]*<([^>]+)>/ =~ line
+      $recipients << $~[0]
+    end
+  end
+end
+
+def send(lines, from, to)
+  hostname = get_config("hostname", "localhost.localdomain")
+  auth_method = get_config("smtp/auth/method", "none")
+  if auth_method == "none"
+    auth_method = nil
+    auth_user = nil
+    auth_pass = nil
+  else
+    auth_user = get_config("smtp/auth/username")
+    auth_pass = get_config("smtp/auth/password")
+    case auth_method
+    when "plain"
+      auth_method = :plain
+    when "cram-md5"
+      auth_methoud = :cram_md5
+    else
+      fatal_error "authorization method " +
+	"`#{auth_method}' not supported"
+    end
+  end
+  smtp = Net::SMTP.new(get_config("smtp/server"), get_config("smtp/port", 25))
+  smtp.open_timeout = get_config("timeout", 10)
+  begin
+    smtp.start(hostname, auth_user, auth_pass, auth_method) do |smtp|
+      smtp.send_mail lines, from, to
+    end
+  rescue Exception => e
+    fatal_error "message sending failed: #{e.message}"
+  end
+end
+
+def main
+  parse_options
+  $config = REXML::Document.new(File.new($config_file))
+  lines = $stdin.readlines
+  scan_message(lines)
+  send(lines, $mail_from, $recipients)
+end
+
+main

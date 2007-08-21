@@ -1,0 +1,11 @@
+<starsmtp>
+    <smtp>
+	<server>mail.host.tld</server>
+	<port>nn</port>
+	<auth>
+	    <method>plain</method>
+	    <username>user@host.tld</username>
+	    <password>secret</password>
+	</auth>
+    </smtp>
+</starsmtp>
